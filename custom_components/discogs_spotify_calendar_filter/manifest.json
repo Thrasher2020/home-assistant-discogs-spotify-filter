@@ -1,0 +1,11 @@
+{
+  "domain": "discogs_spotify_calendar_filter",
+  "name": "Discogs/Spotify Calendar Filter",
+  "version": "0.3.0",
+  "config_flow": true,
+  "documentation": "https://github.com/Thrasher2020/home-assistant-discogs-spotify-filter",
+  "issue_tracker": "https://github.com/Thrasher2020/home-assistant-discogs-spotify-filter",
+  "dependencies": ["ticketmaster"],
+  "iot_class": "cloud_polling",
+  "loggers": ["discogs_spotify_calendar_filter"]
+}

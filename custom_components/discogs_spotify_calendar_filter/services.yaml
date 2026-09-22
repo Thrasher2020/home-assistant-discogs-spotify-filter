@@ -1,0 +1,30 @@
+sync_collection:
+  name: Sync Collection
+  description: >-
+    Adds the albums in the Discogs collection to the target Spotify playlist,
+    skipping any album already present. Uses the playlist configured in the
+    options unless a playlist_id is supplied.
+  fields:
+    playlist_id:
+      name: Playlist ID
+      description: Optional Spotify playlist id to sync into. Defaults to the configured collection sync playlist.
+      example: 5AC9ZXA7nJ7oGWO911FuDG
+      selector:
+        text:
+          multiline: false
+
+realign_playlist:
+  name: Re-align Playlist
+  description: >-
+    Makes the target playlist an exact mirror of the Discogs collection:
+    removes any track whose album is not in the collection and adds the tracks
+    of any collection album that is missing. Uses the playlist configured in
+    the options unless a playlist_id is supplied.
+  fields:
+    playlist_id:
+      name: Playlist ID
+      description: Optional Spotify playlist id to re-align. Defaults to the configured collection sync playlist.
+      example: 5AC9ZXA7nJ7oGWO911FuDG
+      selector:
+        text:
+          multiline: false

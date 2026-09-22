@@ -1,0 +1,86 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Discogs personal access token",
+        "description": "Enter your Discogs personal access token (discogs.com -> Settings -> Developers). Your collection's artist list is matched against the upcoming gigs from Gig Finder.",
+        "data": {
+          "discogs_token": "Discogs token"
+        }
+      },
+      "spotify": {
+        "title": "Spotify playlists",
+        "description": "Pick any number of Spotify playlists whose artists should also match against upcoming gigs. Leave empty to use Discogs only.",
+        "data": {
+          "spotify_playlist_id": "Playlists"
+        }
+      },
+      "calendar": {
+        "title": "Secondary calendar",
+        "description": "Optional: pick a calendar to cross-reference against. Gigs whose name loosely matches (on the exact same date) a calendar event are treated as already booked and hidden from the results.",
+        "data": {
+          "calendar_entity_id": "Calendar"
+        }
+      }
+    },
+    "error": {
+      "invalid_token": "The token is invalid or the account could not be verified.",
+      "cannot_connect": "Could not connect to Discogs. Try again."
+    },
+    "abort": {
+      "already_configured": "Discogs/Spotify Calendar Filter is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Discogs/Spotify Calendar Filter options",
+        "description": "Edit the Spotify playlists, the sync target playlist, the secondary calendar and the collection-sync exclusion rules. Releases on the keep-list stay in the playlist even when their genre or style matches an exclusion. Leave the sync playlist empty to use Discogs only.",
+        "data": {
+          "spotify_playlist_id": "Spotify playlists",
+          "calendar_entity_id": "Secondary calendar",
+          "spotify_sync_playlist_id": "Collection sync playlist",
+          "exclude_genres": "Exclude Discogs genres (comma-separated)",
+          "exclude_styles": "Exclude Discogs styles (comma-separated)",
+          "keep_releases": "Keep these releases despite excluded genres/styles (comma-separated Discogs titles)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "highlighted_gigs": {
+        "name": "Highlighted Gigs"
+      },
+      "upcoming_events": {
+        "name": "Upcoming events"
+      },
+      "collection_sync_status": {
+        "name": "Collection Sync Status"
+      }
+    },
+    "switch": {
+      "collection_only": {
+        "name": "Collection Only"
+      }
+    },
+    "button": {
+      "sync_collection": {
+        "name": "Sync Collection"
+      },
+      "realign_playlist": {
+        "name": "Re-align Playlist"
+      }
+    }
+  },
+  "services": {
+    "sync_collection": {
+      "name": "Sync Collection",
+      "description": "Adds the albums in the Discogs collection to the configured (or supplied) Spotify playlist, skipping any album already present."
+    },
+    "realign_playlist": {
+      "name": "Re-align Playlist",
+      "description": "Makes the target playlist an exact mirror of the Discogs collection: removes tracks whose album is not in the collection and adds any missing album."
+    }
+  }
+}
