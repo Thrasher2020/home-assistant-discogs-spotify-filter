@@ -1,0 +1,5 @@
+{
+  "name": "Discogs/Spotify Calendar Filter",
+  "render_readme": true,
+  "homeassistant": "2024.8.0"
+}
