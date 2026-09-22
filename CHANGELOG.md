@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+### Added
+
+- Attended-band suppression: once a band appears in the reference calendar, every other gig listing by that band is hidden — you only go to a band once.
+
+### Changed
+
+- The secondary-calendar setup text now covers both reasons a gig is hidden: a time clash, or a band already attended.
+
 ## 0.3.1
 
 ### Fixed

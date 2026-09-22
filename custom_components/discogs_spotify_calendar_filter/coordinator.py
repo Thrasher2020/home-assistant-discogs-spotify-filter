@@ -399,6 +399,22 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 return True
         return False
 
+    def _band_attended(
+        self, candidates: list[str], entries: list[dict[str, Any]]
+    ) -> bool:
+        """Return True when any of the gig's bands is already being attended.
+
+        A band counts as attended when any candidate name loosely matches a
+        timed reference-calendar event. You only go to a band once, so every
+        other listing for it is hidden. All-day reference events never match:
+        they are not gig commitments.
+        """
+        for candidate in candidates:
+            for entry in entries:
+                if _fuzzy_matches(candidate, entry["summary"]):
+                    return True
+        return False
+
     def _get_gig_events(self) -> list[dict[str, Any]]:
         """Collect every upcoming event currently held by Gig Finder."""
         events: list[dict[str, Any]] = []
@@ -945,7 +961,10 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 calendar_entries
                 and isinstance(start, datetime)
                 and start < dt_util.now() + timedelta(days=_BOOKED_HORIZON_DAYS)
-                and self._gig_blocked(start, calendar_entries)
+                and (
+                    self._gig_blocked(start, calendar_entries)
+                    or self._band_attended(candidates, calendar_entries)
+                )
             ):
                 calendar_date = dt_util.as_local(start).date()
             events.append(

@@ -6,7 +6,7 @@ Surf the gigs around you that actually matter to *you*. **Discogs/Spotify Calend
 
 - highlights every upcoming gig whose band is in **your Discogs collection** or **your Spotify playlists**;
 - exposes them as a curated **calendar** and **sensors**;
-- optionally cross-references a **secondary calendar** (e.g. your iCloud/Google calendar) so gigs that clash with events already in that calendar are hidden;
+- optionally cross-references a **secondary calendar** (e.g. your iCloud/Google calendar) so gigs that clash with its events — or are by a band already booked in it — are hidden;
 - can **sync your Discogs collection** to a Spotify playlist, and re-align that playlist to be an exact mirror of the collection.
 
 ## Prerequisites
@@ -16,7 +16,7 @@ Surf the gigs around you that actually matter to *you*. **Discogs/Spotify Calend
 | **Gig Finder** integration | Provides the upstream live-music listings (Ticketmaster / Fatsoma / Skiddle) | [home-assistant-gigfinder](https://github.com/Thrasher2020/home-assistant-gigfinder) |
 | **Discogs personal access token** | Reads your collection to build the artist list | discogs.com → Settings → Developers |
 | **SpotifyPlus** *(optional)* | Only needed for matching against Spotify playlists and collection sync | `spotifyplus` player integration |
-| **Secondary calendar** *(optional)* | Only needed to hide gigs that clash with it | any HA calendar entity |
+| **Secondary calendar** *(optional)* | Only needed to hide gigs that clash with it or repeat a band you are already seeing | any HA calendar entity |
 
 ## Installation
 
@@ -46,7 +46,7 @@ Then open **Options** to tune everything:
 | Option | Description |
 |---|---|
 | Spotify playlists | Multi-select of playlists whose artists should match upcoming gigs |
-| Secondary calendar | Calendar to cross-reference; gigs overlapping its timed events are hidden |
+| Secondary calendar | Calendar to cross-reference; gigs overlapping its events or by an attended band are hidden |
 | Collection sync playlist | Target playlist for `sync_collection` / `realign_playlist` |
 | Exclude Discogs genres | Comma-separated genres to skip when syncing the collection |
 | Exclude Discogs styles | Comma-separated styles to skip when syncing the collection |
@@ -88,7 +88,7 @@ automation:
 
 - **No matches** — make sure Gig Finder is set up and producing events, and that your Discogs collection is public to the token's account.
 - **Spotify features missing** — SpotifyPlus must be configured with a player; check the Services list for `spotifyplus`.
-- **`in_calendar` hidden gigs** — a gig is hidden when its time window overlaps an event on your secondary calendar (all-day reference events are ignored).
+- **`in_calendar` hidden gigs** — a gig is hidden when its time window overlaps an event on your secondary calendar, or when it is by a band you are already seeing there (all-day reference events are ignored).
 - Enable debug logging:
 
 ```yaml
