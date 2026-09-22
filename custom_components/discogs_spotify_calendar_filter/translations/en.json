@@ -17,7 +17,7 @@
       },
       "calendar": {
         "title": "Secondary calendar",
-        "description": "Optional: pick a calendar to cross-reference against. Gigs whose name loosely matches (on the exact same date) a calendar event are treated as already booked and hidden from the results.",
+        "description": "Optional: pick a calendar to cross-reference against. Gigs whose time window overlaps an event on that calendar are treated as unavailable and hidden.",
         "data": {
           "calendar_entity_id": "Calendar"
         }

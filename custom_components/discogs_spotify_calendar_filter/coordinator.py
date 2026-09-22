@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import logging
 import re
@@ -164,15 +164,15 @@ def _usable(name: str) -> bool:
     return len(_normalize(name)) >= _MIN_NAME_LENGTH
 
 
-def _fuzzy_matches(name: str, summary: str) -> bool:
-    """Loosely tolerant name match between a band and a calendar event summary.
+def _fuzzy_matches(name: str, other: str) -> bool:
+    """Loosely tolerant artist-name match (e.g. an album artist vs a candidate).
 
     True when the normalized names are equal, when either is a substring of the
     other (gets 'Xentrix' ~ 'Xentrix - Live in London'), or when the shorter is
     similar enough to the longer (SequenceMatcher ratio).
     """
     a = _normalize(name)
-    b = _normalize(summary)
+    b = _normalize(other)
     if not a or not b:
         return False
     if a == b:
@@ -183,16 +183,19 @@ def _fuzzy_matches(name: str, summary: str) -> bool:
     return SequenceMatcher(None, shorter, longer).ratio() >= _FUZZY_RATIO
 
 
-def _parse_calendar_start(value: Any) -> date | None:
-    """Parse a calendar.get_events start value into a local date."""
+def _event_dt(value: Any) -> datetime | None:
+    """Parse a calendar event start/end value into a local datetime.
+
+    Returns None for date-only (all-day) values and anything unparseable, so
+    all-day reference entries never block a gig: they carry no time window and
+    are not gig commitments.
+    """
     if isinstance(value, dict):
         value = value.get("dateTime") or value.get("date")
     if not isinstance(value, str) or not value:
         return None
     if parsed := dt_util.parse_datetime(value):
-        return dt_util.as_local(parsed).date()
-    if parsed_date := dt_util.parse_date(value):
-        return parsed_date
+        return dt_util.as_local(parsed)
     return None
 
 
@@ -366,24 +369,34 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             summary = event.get("summary")
             if not summary:
                 continue
-            day = _parse_calendar_start(event.get("start"))
-            if day is None:
+            start_dt = _event_dt(event.get("start"))
+            if start_dt is None:
                 continue
-            entries.append({"date": day, "summary": summary})
+            end_dt = _event_dt(event.get("end")) or start_dt + timedelta(hours=1)
+            entries.append({"summary": summary, "start": start_dt, "end": end_dt})
         return entries
 
-    def _band_booked(
-        self, candidates: list[str], entries: list[dict[str, Any]]
+    def _gig_blocked(
+        self, gig_start: datetime, entries: list[dict[str, Any]]
     ) -> bool:
-        """Return True when a candidate band is booked in the reference calendar.
+        """Return True when a gig overlaps a timed reference-calendar event.
 
-        A band counts as booked when any of its candidate names loosely matches
-        any reference calendar event summary, regardless of the event date.
+        Both the gig (taken to be 3 hours long, matching the calendar entity)
+        and the reference events are treated as blocks on the calendar. A gig is
+        hidden when its time window overlaps one, not merely when its band name
+        turns up anywhere on the reference calendar.
         """
-        for candidate in candidates:
-            for entry in entries:
-                if _fuzzy_matches(candidate, entry["summary"]):
-                    return True
+        start = dt_util.as_local(gig_start)
+        end = start + timedelta(hours=3)
+        for entry in entries:
+            ref_start = entry.get("start")
+            ref_end = entry.get("end")
+            if not isinstance(ref_start, datetime) or not isinstance(
+                ref_end, datetime
+            ):
+                continue
+            if start < ref_end and end > ref_start:
+                return True
         return False
 
     def _get_gig_events(self) -> list[dict[str, Any]]:
@@ -932,7 +945,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 calendar_entries
                 and isinstance(start, datetime)
                 and start < dt_util.now() + timedelta(days=_BOOKED_HORIZON_DAYS)
-                and self._band_booked(candidates, calendar_entries)
+                and self._gig_blocked(start, calendar_entries)
             ):
                 calendar_date = dt_util.as_local(start).date()
             events.append(

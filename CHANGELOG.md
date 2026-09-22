@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+- Secondary-calendar cross-reference now hides a gig when its time window **overlaps** a timed event on the reference calendar, instead of loosely matching band names anywhere in the window. All-day (date-only) reference events no longer block anything.
+
 ## 0.3.0
 
 **Renamed integration.** "Discogs Gigs" (`discogs_gigs`) is now **Discogs/Spotify Calendar Filter** (`discogs_spotify_calendar_filter`).
