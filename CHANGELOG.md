@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+
+- The deferred startup refresh now runs after the `homeassistant.started` event instead of as a background task created during setup. In 0.3.3 the task blocked Home Assistant's bootstrap for the full 5-minute delay, adding that time to every restart; the 0.3.4 change restores the intended fast boot while keeping the first crawl deferred. The usual 6-hour poll continues afterwards.
+
 ## 0.3.3
 
 ### Changed
