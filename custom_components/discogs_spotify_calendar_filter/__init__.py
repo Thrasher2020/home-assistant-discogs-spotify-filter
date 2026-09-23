@@ -7,7 +7,8 @@ import asyncio
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import Event, HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
@@ -64,13 +65,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async def _delayed_startup_refresh() -> None:
-        """Run the first refresh after a delay so startup is never blocked."""
+    async def _delayed_startup_refresh(_: Event) -> None:
+        """Run the first refresh after startup and a delay, without blocking."""
         await asyncio.sleep(STARTUP_REFRESH_DELAY.total_seconds())
         await coordinator.async_refresh()
 
-    startup_task = hass.async_create_task(_delayed_startup_refresh())
-    entry.async_on_unload(startup_task.cancel)
+    entry.async_on_unload(
+        hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STARTED, _delayed_startup_refresh
+        )
+    )
 
     return True
 
