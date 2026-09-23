@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
     SERVICE_REALIGN_PLAYLIST,
     SERVICE_SYNC_COLLECTION,
+    STARTUP_REFRESH_DELAY,
 )
 from .coordinator import DiscogsSpotifyCalendarFilterCoordinator
 
@@ -26,12 +28,6 @@ _OPTIONAL_PLAYLIST_SCHEMA = vol.Schema(
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Discogs/Spotify Calendar Filter from a config entry."""
     coordinator = DiscogsSpotifyCalendarFilterCoordinator(hass, entry)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        raise
-    except Exception as err:
-        raise ConfigEntryNotReady from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
@@ -67,6 +63,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def _delayed_startup_refresh() -> None:
+        """Run the first refresh after a delay so startup is never blocked."""
+        await asyncio.sleep(STARTUP_REFRESH_DELAY.total_seconds())
+        await coordinator.async_refresh()
+
+    startup_task = hass.async_create_task(_delayed_startup_refresh())
+    entry.async_on_unload(startup_task.cancel)
+
     return True
 
 
