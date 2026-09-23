@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+
+- The first refresh is deferred until five minutes after startup, so the integration never blocks or delays Home Assistant's boot. The usual 6-hour poll continues afterwards.
+
 ## 0.3.2
 
 ### Added
