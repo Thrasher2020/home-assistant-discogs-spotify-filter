@@ -41,7 +41,7 @@ SERVICE_REALIGN_PLAYLIST = "realign_playlist"
 
 SKIP_SPOTIFY = "__skip__"
 SPOTIFY_MAX_TRACKS = 10000
-SPOTIFY_PAGE_ITEMS = 100
+SPOTIFY_PAGE_ITEMS = 50  # spotifyplus get_playlist_items limit max = 50
 SPOTIFY_PLAYLIST_META_FIELDS = "id,name,snapshot_id,tracks(total)"
 SPOTIFY_PLAYLIST_ITEMS_FIELDS = "items(track(artists(id,name)))"
 SPOTIFY_SCAN_LIMIT = 9999  # max spotifyplus accepts for get_playlist_items

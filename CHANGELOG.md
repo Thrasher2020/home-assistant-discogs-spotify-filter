@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+### Fixed
+
+- Spotify playlist scans failed on first run with `MultipleInvalid: not a valid value at 'limit'` because the spotifyplus `get_playlist_items` service accepts a `limit` of at most 50 while the scanner requested 100. The page size is now 50 — Spotify's own cap for `fields` pages — so the first scan fills the playlist cache correctly, and steady-state refreshes stay at one metadata call per playlist.
+
 ## 0.3.5
 
 ### Changed
