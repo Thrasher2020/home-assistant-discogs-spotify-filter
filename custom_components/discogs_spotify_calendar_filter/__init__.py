@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import Event, HomeAssistant, ServiceCall
+from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
     SERVICE_REALIGN_PLAYLIST,
     SERVICE_SYNC_COLLECTION,
-    STARTUP_REFRESH_DELAY,
 )
 from .coordinator import DiscogsSpotifyCalendarFilterCoordinator
 
@@ -65,16 +62,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async def _delayed_startup_refresh(_: Event) -> None:
-        """Run the first refresh after startup and a delay, without blocking."""
-        await asyncio.sleep(STARTUP_REFRESH_DELAY.total_seconds())
+    async def _startup_refresh() -> None:
+        """Run the first refresh once Home Assistant has fully started."""
         await coordinator.async_refresh()
 
-    entry.async_on_unload(
-        hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STARTED, _delayed_startup_refresh
+    if hass.state == CoreState.running:
+        entry.async_create_background_task(
+            hass, _startup_refresh(), "discogs_spotify_calendar_filter_startup"
         )
-    )
+    else:
+        listener_fired = False
+
+        async def _on_start(event: Event) -> None:
+            nonlocal listener_fired
+            listener_fired = True
+            await _startup_refresh()
+
+        unsub = hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STARTED, _on_start
+        )
+
+        @callback
+        def _remove_listener() -> None:
+            if not listener_fired:
+                unsub()
+
+        entry.async_on_unload(_remove_listener)
 
     return True
 

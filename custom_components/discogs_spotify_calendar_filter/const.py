@@ -33,13 +33,17 @@ SERVICE_GET_EVENTS = "get_events"
 MAX_CALENDAR_LOOKAHEAD_DAYS = 730
 
 SPOTIFY_DOMAIN = "spotifyplus"
+SERVICE_GET_PLAYLIST = "get_playlist"
 SERVICE_GET_PLAYLIST_FAVORITES = "get_playlist_favorites"
 SERVICE_GET_PLAYLIST_ITEMS = "get_playlist_items"
 SERVICE_SYNC_COLLECTION = "sync_collection"
 SERVICE_REALIGN_PLAYLIST = "realign_playlist"
 
 SKIP_SPOTIFY = "__skip__"
-SPOTIFY_MAX_TRACKS = 1000
+SPOTIFY_MAX_TRACKS = 10000
+SPOTIFY_PAGE_ITEMS = 100
+SPOTIFY_PLAYLIST_META_FIELDS = "id,name,snapshot_id,tracks(total)"
+SPOTIFY_PLAYLIST_ITEMS_FIELDS = "items(track(artists(id,name)))"
 SPOTIFY_SCAN_LIMIT = 9999  # max spotifyplus accepts for get_playlist_items
 SPOTIFY_SEARCH_LIMIT = 5
 SPOTIFY_SEARCH_ATTEMPTS = 3
@@ -53,8 +57,6 @@ COLLECTION_FOLDER_ID = 0
 COLLECTION_PER_PAGE = 100
 
 SCAN_INTERVAL = timedelta(hours=6)
-
-STARTUP_REFRESH_DELAY = timedelta(minutes=5)
 
 HTTP_TIMEOUT_SECONDS = 30
 PAGE_DELAY_SECONDS = 0.25

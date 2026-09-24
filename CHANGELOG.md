@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5
+
+### Changed
+
+- Playlist artist scanning now matches the MusicBrainz Upcoming integration's approach: each playlist is fingerprinted with one slim `get_playlist` call (snapshot id plus track count), and an unchanged playlist reuses its cached artist list instead of re-scanning every track. The first scan after the update fills the cache (one slim call per 100 tracks, up to 10,000); steady-state refreshes cost one metadata call per playlist. Artists are deduplicated by Spotify artist id.
+- The startup refresh now runs immediately at the `homeassistant.started` event and re-runs right away when the config entry is reloaded on a running instance, matching the MusicBrainz Upcoming integration. Setup is still never blocked: initial boot defers via an event listener as in 0.3.4, and the 5-minute startup sleep is gone.
+
 ## 0.3.4
 
 ### Fixed

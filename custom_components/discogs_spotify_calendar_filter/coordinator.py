@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import SERVER_SOFTWARE, async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -41,12 +42,16 @@ from .const import (
     PAGE_DELAY_SECONDS,
     SCAN_INTERVAL,
     SERVICE_GET_EVENTS,
+    SERVICE_GET_PLAYLIST,
     SERVICE_GET_PLAYLIST_ITEMS,
     SKIP_CALENDAR,
     SKIP_SYNC,
     SPOTIFY_ADD_BATCH,
     SPOTIFY_DOMAIN,
     SPOTIFY_MAX_TRACKS,
+    SPOTIFY_PAGE_ITEMS,
+    SPOTIFY_PLAYLIST_ITEMS_FIELDS,
+    SPOTIFY_PLAYLIST_META_FIELDS,
     SPOTIFY_SCAN_LIMIT,
     SPOTIFY_SEARCH_ATTEMPTS,
     SPOTIFY_SEARCH_LIMIT,
@@ -62,6 +67,7 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
 _MIN_NAME_LENGTH = 3
 _FUZZY_RATIO = 0.62
 _BOOKED_HORIZON_DAYS = 90
+_PLAYLIST_CACHE_STORE_VERSION = 1
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _PT_WORD_RE = re.compile(r"^(part|parts|pt)$")
@@ -217,6 +223,24 @@ def _sync_result_summary(result: dict[str, Any]) -> str:
     return ", ".join(parts) or "no results"
 
 
+def _playlist_pairs(value: Any) -> list[list[str]] | None:
+    """Validate the persisted per-playlist artist list.
+
+    Accepts a list of [artist_id, name] pairs, tolerating None/tuples, and
+    returns None when nothing usable is present.
+    """
+    if not isinstance(value, list):
+        return None
+    pairs: list[list[str]] = []
+    for item in value:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            artist_id = item[0]
+            name = item[1]
+            if isinstance(artist_id, str) and isinstance(name, str):
+                pairs.append([artist_id, name])
+    return pairs or None
+
+
 class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fetch the Discogs collection's artists and cross-reference upcoming gigs."""
 
@@ -229,6 +253,15 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
         self._sync_lock = asyncio.Lock()
         self.last_sync_result: dict[str, Any] | None = None
         self.sync_running = False
+        # Per-playlist fingerprint + artist cache: keyed by playlist id, each
+        # entry is {"snapshot_id", "total", "artists": [[spotify_artist_id,
+        # name], ...]}. Lets an unchanged playlist skip its track scan.
+        self._playlist_cache: dict[str, dict[str, Any]] = {}
+        self._playlist_store = Store(
+            hass, _PLAYLIST_CACHE_STORE_VERSION, f"{DOMAIN}.playlists.{entry.entry_id}"
+        )
+        self._playlist_cache_loaded = False
+        self._playlist_cache_dirty = False
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -279,7 +312,13 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
         return []
 
     async def _async_fetch_spotify_artists(self) -> list[str]:
-        """Fetch artist names from the configured Spotify playlists via spotifyplus."""
+        """Fetch artist names from the configured Spotify playlists via spotifyplus.
+
+        Each playlist is first checked with a slim metadata call (snapshot id
+        plus track count); when it matches the persisted fingerprint, the
+        cached artist list is reused and the track scan is skipped. The first
+        run scans every playlist once to fill the cache.
+        """
         player_entity_id = self._entry.data.get(CONF_SPOTIFY_PLAYER_ENTITY_ID)
         playlist_ids = self._playlist_ids()
         if not playlist_ids or not player_entity_id:
@@ -289,37 +328,157 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 "SpotifyPlus unavailable - skipping Spotify playlist artist match"
             )
             return []
+        has_meta = self.hass.services.has_service(SPOTIFY_DOMAIN, SERVICE_GET_PLAYLIST)
+        await self._async_ensure_playlist_cache_loaded()
 
-        artists: set[str] = set()
+        artists: dict[str, str] = {}
         for playlist_id in playlist_ids:
+            cached = self._playlist_cache.get(playlist_id) or {}
+            snapshot_id = None
+            total = None
+            if has_meta:
+                meta = await self._async_get_playlist_meta(playlist_id, player_entity_id)
+                if meta is not None:
+                    snapshot_id = meta["snapshot_id"]
+                    total = meta["total"]
+            cached_pairs = _playlist_pairs(cached.get("artists"))
+            if (
+                snapshot_id
+                and cached.get("snapshot_id") == snapshot_id
+                and cached.get("total") == total
+                and cached_pairs
+            ):
+                _LOGGER.debug(
+                    "Playlist %s unchanged (snapshot %s) - reusing %d cached artist(s)",
+                    playlist_id,
+                    snapshot_id,
+                    len(cached_pairs),
+                )
+                for artist_id, name in cached_pairs:
+                    artists[artist_id or name] = name or artist_id
+                continue
+            found = await self._async_fetch_playlist_artists(
+                playlist_id, total, player_entity_id
+            )
+            if found is None:
+                if cached_pairs:
+                    _LOGGER.warning(
+                        "Playlist %s scan failed; keeping %d cached artist(s)",
+                        playlist_id,
+                        len(cached_pairs),
+                    )
+                    for artist_id, name in cached_pairs:
+                        artists[artist_id or name] = name or artist_id
+                continue
+            self._playlist_cache[playlist_id] = {
+                "snapshot_id": snapshot_id,
+                "total": total,
+                "artists": found,
+            }
+            self._playlist_cache_dirty = True
+            for artist_id, name in found:
+                artists[artist_id or name] = name or artist_id
+        if self._playlist_cache_dirty:
+            await self._playlist_store.async_save(self._playlist_cache)
+            self._playlist_cache_dirty = False
+        return sorted(artists.values())
+
+    async def _async_get_playlist_meta(
+        self, playlist_id: str, player: str
+    ) -> dict[str, Any] | None:
+        """Fetch a playlist's Spotify snapshot id and track count (one call)."""
+        try:
+            response = await asyncio.wait_for(
+                self.hass.services.async_call(
+                    SPOTIFY_DOMAIN,
+                    SERVICE_GET_PLAYLIST,
+                    {
+                        "playlist_id": playlist_id,
+                        "fields": SPOTIFY_PLAYLIST_META_FIELDS,
+                    },
+                    target={"entity_id": player},
+                    blocking=True,
+                    return_response=True,
+                ),
+                timeout=SPOTIFY_SERVICE_TIMEOUT_SECONDS,
+            )
+        except (asyncio.TimeoutError, HomeAssistantError) as err:
+            _LOGGER.warning(
+                "Spotify playlist metadata fetch failed for %s: %s", playlist_id, err
+            )
+            return None
+        result = (response or {}).get("result") or {}
+        snapshot = result.get("snapshotId") or result.get("snapshot_id")
+        total = (result.get("tracks") or {}).get("total")
+        return {
+            "snapshot_id": str(snapshot) if snapshot else None,
+            "total": int(total) if isinstance(total, int) else None,
+        }
+
+    async def _async_fetch_playlist_artists(
+        self, playlist_id: str, total: int | None, player: str
+    ) -> list[list[str]] | None:
+        """Scan one playlist's tracks and return [[artist_id, name], ...] pairs
+        deduplicated by Spotify artist id (name as fallback).
+
+        Uses manual paging with a slim fields payload - Spotify caps the page
+        `total` at 50 when `fields` is used, so auto-paging cannot be trusted
+        for large playlists. Returns None on failure.
+        """
+        artists: dict[str, str] = {}
+        offset = 0
+        while True:
+            if total is not None and offset >= total:
+                break
             try:
                 response = await asyncio.wait_for(
                     self.hass.services.async_call(
                         SPOTIFY_DOMAIN,
                         SERVICE_GET_PLAYLIST_ITEMS,
-                        {"playlist_id": playlist_id, "limit_total": SPOTIFY_MAX_TRACKS},
-                        target={"entity_id": player_entity_id},
+                        {
+                            "playlist_id": playlist_id,
+                            "limit": SPOTIFY_PAGE_ITEMS,
+                            "offset": offset,
+                            "fields": SPOTIFY_PLAYLIST_ITEMS_FIELDS,
+                        },
+                        target={"entity_id": player},
                         blocking=True,
                         return_response=True,
                     ),
                     timeout=SPOTIFY_SERVICE_TIMEOUT_SECONDS,
                 )
-            except asyncio.TimeoutError:
-                _LOGGER.warning("Spotify playlist fetch timed out for %s", playlist_id)
-                continue
-            except HomeAssistantError as err:
+            except (asyncio.TimeoutError, HomeAssistantError) as err:
                 _LOGGER.warning(
                     "Spotify playlist fetch failed for %s: %s", playlist_id, err
                 )
-                continue
-
+                return None
             result = (response or {}).get("result") or {}
-            for item in result.get("items") or []:
+            items = result.get("items") or []
+            for item in items:
                 track = item.get("track") or item.get("item") or {}
                 for artist in track.get("artists") or []:
-                    if name := artist.get("name"):
-                        artists.add(name)
-        return sorted(artists)
+                    artist_id = artist.get("id")
+                    name = artist.get("name")
+                    if not artist_id and not name:
+                        continue
+                    artists[artist_id or name] = name or artist_id
+            if len(items) < SPOTIFY_PAGE_ITEMS:
+                break
+            offset += SPOTIFY_PAGE_ITEMS
+            if offset >= SPOTIFY_MAX_TRACKS:
+                break
+        if not artists:
+            return None
+        return [[key, value] for key, value in sorted(artists.items())]
+
+    async def _async_ensure_playlist_cache_loaded(self) -> None:
+        """Load the persisted per-playlist fingerprint/artist cache once."""
+        if self._playlist_cache_loaded:
+            return
+        loaded = await self._playlist_store.async_load()
+        if isinstance(loaded, dict):
+            self._playlist_cache = loaded
+        self._playlist_cache_loaded = True
 
     def _secondary_calendar_entity_id(self) -> str | None:
         """Return the configured secondary calendar entity id, if any."""
