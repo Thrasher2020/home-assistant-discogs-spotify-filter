@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7
+
+### Fixed
+
+- Collection sync and playlist re-align could never add new albums. `SPOTIFY_MAX_TRACKS` was 10000, but the spotifyplus `get_album_tracks` service rejects a `limit_total` above 9999 (`MultipleInvalid: not a valid value at 'limit_total'`), aborting the entire run at the first new album and reporting `0 added`. The album-track cap is now 9999, so new releases from the Discogs collection reach the sync playlist again.
+
 ## 0.3.6
 
 ### Fixed
