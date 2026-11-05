@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8
+
+### Added
+
+- The secondary-calendar cross-check horizon is now configurable in the integration options: **Calendar cross-check lookahead (days)**, 1–730 days, default 365. Previously the horizon was hard-coded at 90 days, so a gig more than three months away was never checked against the calendar and stayed visible even when it clashed with a booked event or repeated a band already in the calendar. Gigs beyond the horizon are still checked once they come inside it.
+
 ## 0.3.7
 
 ### Fixed

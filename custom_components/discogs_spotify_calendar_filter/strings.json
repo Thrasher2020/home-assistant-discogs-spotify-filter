@@ -35,10 +35,11 @@
     "step": {
       "init": {
         "title": "Discogs/Spotify Calendar Filter options",
-        "description": "Edit the Spotify playlists, the sync target playlist, the secondary calendar and the collection-sync exclusion rules. Releases on the keep-list stay in the playlist even when their genre or style matches an exclusion. Leave the sync playlist empty to use Discogs only.",
+        "description": "Edit the Spotify playlists, the sync target playlist, the secondary calendar and the collection-sync exclusion rules. Releases on the keep-list stay in the playlist even when their genre or style matches an exclusion. Leave the sync playlist empty to use Discogs only. The calendar lookahead is how many days ahead gigs are cross-checked against the secondary calendar (1-730, default 365).",
         "data": {
           "spotify_playlist_id": "Spotify playlists",
           "calendar_entity_id": "Secondary calendar",
+          "calendar_lookahead_days": "Calendar cross-check lookahead (days)",
           "spotify_sync_playlist_id": "Collection sync playlist",
           "exclude_genres": "Exclude Discogs genres (comma-separated)",
           "exclude_styles": "Exclude Discogs styles (comma-separated)",

@@ -17,6 +17,7 @@ from .const import (
     API_BASE_URL,
     CALENDAR_DOMAIN,
     CONF_CALENDAR_ENTITY_ID,
+    CONF_CALENDAR_LOOKAHEAD_DAYS,
     CONF_DISCOGS_TOKEN,
     CONF_DISCOGS_USERNAME,
     CONF_EXCLUDE_GENRES,
@@ -27,10 +28,12 @@ from .const import (
     CONF_SPOTIFY_PLAYER_ENTITY_ID,
     CONF_SPOTIFY_SYNC_PLAYLIST_ID,
     CONF_SPOTIFY_SYNC_PLAYLIST_NAME,
+    DEFAULT_CALENDAR_LOOKAHEAD_DAYS,
     DEFAULT_EXCLUDE_GENRES,
     DEFAULT_EXCLUDE_STYLES,
     DEFAULT_KEEP_RELEASES,
     DOMAIN,
+    MAX_CALENDAR_LOOKAHEAD_DAYS,
     NAME,
     SERVICE_GET_PLAYLIST_FAVORITES,
     SKIP_CALENDAR,
@@ -287,6 +290,9 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
         if user_input is None:
             await self._load_playlists()
             current_calendar = self._entry.data.get(CONF_CALENDAR_ENTITY_ID)
+            current_lookahead = self._entry.data.get(
+                CONF_CALENDAR_LOOKAHEAD_DAYS, DEFAULT_CALENDAR_LOOKAHEAD_DAYS
+            )
             current_playlists = [
                 playlist_id
                 for playlist_id in self._current_playlists()
@@ -308,6 +314,12 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
                         vol.Required(
                             CONF_CALENDAR_ENTITY_ID, default=current_calendar or SKIP_CALENDAR
                         ): vol.In(_calendar_options(self.hass)),
+                        vol.Required(
+                            CONF_CALENDAR_LOOKAHEAD_DAYS, default=current_lookahead
+                        ): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=1, max=MAX_CALENDAR_LOOKAHEAD_DAYS),
+                        ),
                         vol.Required(
                             CONF_SPOTIFY_SYNC_PLAYLIST_ID, default=current_sync or SKIP_SYNC
                         ): vol.In(sync_options),
@@ -368,6 +380,10 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
             data.pop(CONF_CALENDAR_ENTITY_ID, None)
         else:
             data[CONF_CALENDAR_ENTITY_ID] = chosen
+
+        data[CONF_CALENDAR_LOOKAHEAD_DAYS] = int(
+            user_input[CONF_CALENDAR_LOOKAHEAD_DAYS]
+        )
 
         data[CONF_EXCLUDE_GENRES] = str(
             user_input.get(CONF_EXCLUDE_GENRES) or ""

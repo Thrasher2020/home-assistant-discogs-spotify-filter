@@ -91,6 +91,7 @@ _ROMAN_NUMERALS = {
 }
 _TITLE_GROUP_SPLIT_RE = re.compile(r"[(\[{]")
 
+
 def _title_words(name: str) -> list[str]:
     """Tokens of an album title: part/pt folded, roman -> digits, possessive
     's merged back ('Angel's Egg' -> ['angels', 'egg'])."""
@@ -109,6 +110,7 @@ def _title_words(name: str) -> list[str]:
         else:
             out.append(token)
     return out
+
 
 def _core_title_words(name: str) -> list[str]:
     """Title tokens before any parenthetical: 'Flying Teapot (Radio Gnome

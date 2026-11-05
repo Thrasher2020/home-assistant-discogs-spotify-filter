@@ -47,6 +47,7 @@ Then open **Options** to tune everything:
 |---|---|
 | Spotify playlists | Multi-select of playlists whose artists should match upcoming gigs |
 | Secondary calendar | Calendar to cross-reference; gigs overlapping its events or by an attended band are hidden |
+| Calendar cross-check lookahead | How many days ahead gigs are cross-checked against the secondary calendar (1–730, default 365) |
 | Collection sync playlist | Target playlist for `sync_collection` / `realign_playlist` |
 | Exclude Discogs genres | Comma-separated genres to skip when syncing the collection |
 | Exclude Discogs styles | Comma-separated styles to skip when syncing the collection |
