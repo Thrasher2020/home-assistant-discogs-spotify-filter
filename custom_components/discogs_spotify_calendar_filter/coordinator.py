@@ -26,6 +26,7 @@ from .const import (
     COLLECTION_FOLDER_ID,
     COLLECTION_PER_PAGE,
     CONF_CALENDAR_ENTITY_ID,
+    CONF_CALENDAR_LOOKAHEAD_DAYS,
     CONF_DISCOGS_TOKEN,
     CONF_DISCOGS_USERNAME,
     CONF_EXCLUDE_GENRES,
@@ -34,6 +35,7 @@ from .const import (
     CONF_SPOTIFY_PLAYLIST_ID,
     CONF_SPOTIFY_PLAYER_ENTITY_ID,
     CONF_SPOTIFY_SYNC_PLAYLIST_ID,
+    DEFAULT_CALENDAR_LOOKAHEAD_DAYS,
     DEFAULT_EXCLUDE_GENRES,
     DEFAULT_EXCLUDE_STYLES,
     DEFAULT_KEEP_RELEASES,
@@ -66,7 +68,6 @@ _SURNAME_THE_RE = re.compile(r"^(.+?),\s+the$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
 _MIN_NAME_LENGTH = 3
 _FUZZY_RATIO = 0.62
-_BOOKED_HORIZON_DAYS = 90
 _PLAYLIST_CACHE_STORE_VERSION = 1
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -90,7 +91,6 @@ _ROMAN_NUMERALS = {
 }
 _TITLE_GROUP_SPLIT_RE = re.compile(r"[(\[{]")
 
-
 def _title_words(name: str) -> list[str]:
     """Tokens of an album title: part/pt folded, roman -> digits, possessive
     's merged back ('Angel's Egg' -> ['angels', 'egg'])."""
@@ -109,7 +109,6 @@ def _title_words(name: str) -> list[str]:
         else:
             out.append(token)
     return out
-
 
 def _core_title_words(name: str) -> list[str]:
     """Title tokens before any parenthetical: 'Flying Teapot (Radio Gnome
@@ -598,6 +597,14 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
         end = max(future) if future else now + timedelta(days=90)
         end = min(end, now + timedelta(days=MAX_CALENDAR_LOOKAHEAD_DAYS))
         return (now, end)
+
+    def _calendar_lookahead_days(self) -> int:
+        """Return how far ahead the secondary calendar is cross-checked."""
+        try:
+            days = int(self._entry.data.get(CONF_CALENDAR_LOOKAHEAD_DAYS))
+        except (TypeError, ValueError):
+            days = DEFAULT_CALENDAR_LOOKAHEAD_DAYS
+        return max(1, min(days, MAX_CALENDAR_LOOKAHEAD_DAYS))
 
     def _collection_sync_playlist_id(self) -> str | None:
         """Return the configured collection sync target playlist id, if any."""
@@ -1095,6 +1102,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
         calendar_entries = (
             await self._async_fetch_secondary_calendar(*window) if window else []
         )
+        lookahead_days = self._calendar_lookahead_days()
 
         events: list[dict[str, Any]] = []
         matched_events: list[dict[str, Any]] = []
@@ -1119,7 +1127,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             if (
                 calendar_entries
                 and isinstance(start, datetime)
-                and start < dt_util.now() + timedelta(days=_BOOKED_HORIZON_DAYS)
+                and start < dt_util.now() + timedelta(days=lookahead_days)
                 and (
                     self._gig_blocked(start, calendar_entries)
                     or self._band_attended(candidates, calendar_entries)
