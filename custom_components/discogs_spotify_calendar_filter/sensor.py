@@ -113,6 +113,13 @@ class DiscogsSpotifyCalendarFilterSyncStatusSensor(CoordinatorEntity[DiscogsSpot
         if result.get("skipped"):
             return f"skipped ({result.get('reason')})"
         if result.get("op") == "realign":
+            if result.get("dry_run"):
+                return (
+                    f"dry run: {result.get('would_remove_albums', 0)} albums / "
+                    f"{result.get('would_remove_tracks', 0)} tracks would be removed, "
+                    f"{result.get('would_add_albums', 0)} would be added, "
+                    f"{result['already']} intact, {result['errored']} errors"
+                )
             summary = (
                 f"{result['added']} added, {result['removed']} removed, "
                 f"{result['deduped']} deduped, "
@@ -143,6 +150,7 @@ class DiscogsSpotifyCalendarFilterSyncStatusSensor(CoordinatorEntity[DiscogsSpot
         attrs: dict[str, Any] = {}
         for key in (
             "op",
+            "dry_run",
             "playlist_id",
             "added",
             "already",
@@ -150,10 +158,15 @@ class DiscogsSpotifyCalendarFilterSyncStatusSensor(CoordinatorEntity[DiscogsSpot
             "errored",
             "total",
             "deduped",
+            "would_remove_albums",
+            "would_remove_tracks",
+            "would_add_albums",
             "removals_skipped",
         ):
             if key in result:
                 attrs[key] = result[key]
+        if result.get("would_remove"):
+            attrs["would_remove"] = result["would_remove"]
         if result.get("removed_tracks") is not None:
             attrs["removed_tracks"] = result["removed_tracks"]
         if result.get("last_run") is not None:

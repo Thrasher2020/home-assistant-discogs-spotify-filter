@@ -68,6 +68,30 @@ _SURNAME_THE_RE = re.compile(r"^(.+?),\s+the$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
 _MIN_NAME_LENGTH = 3
 _FUZZY_RATIO = 0.62
+# Words that describe the packaging, not the album: they must not be the only
+# thing two titles have in common ("... Vol. 3" is not a match for "... Vol. 3").
+_TITLE_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "disc",
+        "edition",
+        "ep",
+        "lp",
+        "of",
+        "part",
+        "parts",
+        "pt",
+        "the",
+        "vol",
+        "volume",
+    }
+)
+# Credits that name no artist: 'Various' must never match 'Various Artists'.
+_ARTIST_STOP_WORDS = frozenset(
+    {"artist", "artists", "unknown", "unspecified", "various"}
+)
 _PLAYLIST_CACHE_STORE_VERSION = 1
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -119,9 +143,22 @@ def _core_title_words(name: str) -> list[str]:
     return _title_words(head)
 
 
+def _significant_title_words(name: str) -> set[str]:
+    """Core-title words that identify the album, packaging words removed."""
+    return {
+        word for word in _core_title_words(name) if word not in _TITLE_STOP_WORDS
+    }
+
+
 def _title_matches(title: str, album_title: str) -> bool:
     """Tolerant album-title match: identical words, identical core title
-    (Deluxe Edition / subtitle parentheticals ignored), or token containment."""
+    (Deluxe Edition / subtitle parentheticals ignored), or full containment of
+    the shorter title's significant words.
+
+    Containment requires at least two significant words on the shorter side and
+    that they account for half of the longer title, so packaging-only overlap
+    ('... Vol. 3') cannot carry a match on its own.
+    """
     a = _title_words(title)
     b = _title_words(album_title)
     if a and a == b:
@@ -130,15 +167,25 @@ def _title_matches(title: str, album_title: str) -> bool:
     cb = _core_title_words(album_title)
     if ca and cb and ca == cb:
         return True
-    for short, long in ((a, b), (ca, cb)):
-        if not short:
-            continue
-        long_set = set(long)
-        short_set = set(short)
-        hit = sum(1 for t in short_set if t in long_set)
-        if hit >= max(1, min(len(short_set), 2)) and hit / len(short_set) >= 0.5:
-            return True
-    return False
+    sa = _significant_title_words(title)
+    sb = _significant_title_words(album_title)
+    if not sa or not sb:
+        return False
+    short, long = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
+    if len(short) < 2 or not short <= long:
+        return False
+    return len(short) / len(long) >= 0.5
+
+
+def _title_closeness(title: str, album_title: str) -> float:
+    """Similarity of two core titles, used to pick the best search candidate."""
+    left = " ".join(_core_title_words(title))
+    right = " ".join(_core_title_words(album_title))
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def _normalize(name: str) -> str:
@@ -188,6 +235,40 @@ def _fuzzy_matches(name: str, other: str) -> bool:
         return True
     shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
     return SequenceMatcher(None, shorter, longer).ratio() >= _FUZZY_RATIO
+
+
+def _significant_artist_words(name: str) -> set[str]:
+    """Artist-name words that identify the act, credit placeholders removed."""
+    return {
+        word
+        for word in _WORD_RE.findall((name or "").lower())
+        if word not in _ARTIST_STOP_WORDS
+    }
+
+
+def _album_artist_matches(name: str, other: str) -> bool:
+    """Match a Discogs artist to a Spotify album artist, without crossing acts.
+
+    Stricter than `_fuzzy_matches`, which also serves gig-name matching and is
+    left alone. Placeholder credits ('Various' vs 'Various Artists') never
+    match, and a longer name only matches when it contains every significant
+    word of the shorter one, so 'Death Angel' is not 'Dark Angel' and 'Rush' is
+    not 'Crush'.
+    """
+    a = _normalize(name)
+    b = _normalize(other)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    ta = _significant_artist_words(name)
+    tb = _significant_artist_words(other)
+    if not ta or not tb:
+        return False
+    if ta == tb:
+        return True
+    short, long = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return len(short) >= 2 and short <= long
 
 
 def _event_dt(value: Any) -> datetime | None:
@@ -778,14 +859,21 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             if not _title_matches(title, album_title):
                 continue
             if not any(
-                _fuzzy_matches(candidate, album_artist)
+                _album_artist_matches(candidate, album_artist)
                 for candidate in artists
                 for album_artist in album_artists
             ):
                 continue
-            score = 0.5
+            score = _title_closeness(title, album_title)
             if year and str(year) in (album.get("release_date") or ""):
-                score += 0.5
+                score += 0.25
+            _LOGGER.debug(
+                "Spotify candidate %r by %s for Discogs %r scores %.2f",
+                album_title,
+                ", ".join(album_artists),
+                title,
+                score,
+            )
             if score > best_score:
                 best_score = score
                 best = {
@@ -793,6 +881,14 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                     "uri": album.get("uri"),
                     "name": album_title,
                 }
+        if best:
+            _LOGGER.debug(
+                "Discogs %r resolved to %r (%s), score %.2f",
+                title,
+                best["name"],
+                best["id"],
+                best_score,
+            )
         return best
 
     async def _async_album_track_uris(self, album_id: str) -> list[str]:
@@ -920,6 +1016,12 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                         continue
                     existing_albums.add(album["id"])
                     result["added"] += 1
+                    _LOGGER.info(
+                        "Collection sync added %r (%d track(s)) for Discogs %r",
+                        album.get("name"),
+                        len(uris),
+                        release.get("title"),
+                    )
             except HomeAssistantError as err:
                 self._sync_error(result, "sync", str(err))
             except Exception as err:  # noqa: BLE001 - report and continue
@@ -936,24 +1038,30 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             return result
 
     async def async_realign_playlist(
-        self, playlist_id: str | None = None
+        self, playlist_id: str | None = None, dry_run: bool = False
     ) -> dict[str, Any]:
         """Make the target playlist an exact mirror of the collection.
 
         Removes every track whose album is not in the collection, then adds the
         tracks of any collection album that is missing. Returns a summary; never raises.
+        When dry_run is true nothing is changed; the summary reports what would be.
         """
         if self._sync_lock.locked():
             return {"op": "realign", "skipped": True, "reason": "already_running"}
         async with self._sync_lock:
             result: dict[str, Any] = {
                 "op": "realign",
+                "dry_run": dry_run,
                 "playlist_id": playlist_id,
                 "added": 0,
                 "already": 0,
                 "removed": 0,
                 "removed_tracks": 0,
                 "deduped": 0,
+                "would_remove_albums": 0,
+                "would_remove_tracks": 0,
+                "would_add_albums": 0,
+                "would_remove": [],
                 "removals_skipped": False,
                 "errored": 0,
                 "total": 0,
@@ -994,6 +1102,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 tracks = await self._async_playlist_tracks(playlist_id)
 
                 extra_albums: set[str] = set()
+                extra_album_meta: dict[str, dict[str, Any]] = {}
                 remove_uris: list[str] = []
                 if search_failed:
                     result["removals_skipped"] = True
@@ -1008,11 +1117,21 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                         album_id = track["album_id"]
                         if album_id and album_id not in collection_albums:
                             extra_albums.add(album_id)
+                            meta = extra_album_meta.setdefault(
+                                album_id,
+                                {"name": track["album_name"] or album_id, "tracks": 0},
+                            )
                             if track["uri"]:
                                 remove_uris.append(track["uri"])
+                                meta["tracks"] += 1
                         elif not album_id and track["uri"]:
                             extra_albums.add("__unknown__")
+                            meta = extra_album_meta.setdefault(
+                                "__unknown__",
+                                {"name": "<no album metadata>", "tracks": 0},
+                            )
                             remove_uris.append(track["uri"])
+                            meta["tracks"] += 1
 
                 kept_uris: set[str] = set()
                 remove_uris_set = set(remove_uris)
@@ -1028,16 +1147,39 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                         kept_uris.add(uri)
                 result["deduped"] = dup_count
 
-                for start in range(0, len(remove_uris), SPOTIFY_ADD_BATCH):
-                    await self._async_spotify_call(
-                        "playlist_items_remove",
-                        {
-                            "playlist_id": playlist_id,
-                            "uris": ",".join(remove_uris[start : start + SPOTIFY_ADD_BATCH]),
-                        },
+                result["would_remove_albums"] = len(extra_albums)
+                result["would_remove_tracks"] = len(remove_uris)
+                result["would_remove"] = sorted(
+                    (dict(meta) for meta in extra_album_meta.values()),
+                    key=lambda item: item["name"],
+                )[:200]
+                if dry_run:
+                    _LOGGER.debug(
+                        "Re-align (dry run): %s album(s) would be removed; "
+                        "playlist left unchanged",
+                        result["would_remove_albums"],
                     )
-                result["removed"] = len(extra_albums)
-                result["removed_tracks"] = len(remove_uris)
+                else:
+                    for start in range(0, len(remove_uris), SPOTIFY_ADD_BATCH):
+                        await self._async_spotify_call(
+                            "playlist_items_remove",
+                            {
+                                "playlist_id": playlist_id,
+                                "uris": ",".join(
+                                    remove_uris[start : start + SPOTIFY_ADD_BATCH]
+                                ),
+                            },
+                        )
+                    result["removed"] = len(extra_albums)
+                    result["removed_tracks"] = len(remove_uris)
+                    for meta in sorted(
+                        extra_album_meta.values(), key=lambda item: item["name"]
+                    ):
+                        _LOGGER.info(
+                            "Re-align removed %r (%d track(s))",
+                            meta["name"],
+                            meta["tracks"],
+                        )
 
                 existing_albums = {
                     track["album_id"] for track in tracks if track["album_id"]
@@ -1045,6 +1187,9 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 for album_id, album_name in collection_albums.items():
                     if album_id in existing_albums:
                         result["already"] += 1
+                        continue
+                    if dry_run:
+                        result["would_add_albums"] += 1
                         continue
                     try:
                         uris = await self._async_album_track_uris(album_id)
@@ -1063,6 +1208,9 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                         continue
                     existing_albums.add(album_id)
                     result["added"] += 1
+                    _LOGGER.info(
+                        "Re-align added %r (%d track(s))", album_name, len(uris)
+                    )
             except HomeAssistantError as err:
                 self._sync_error(result, "realign", str(err))
             except Exception as err:  # noqa: BLE001 - report and continue
@@ -1073,9 +1221,21 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 result["last_run"] = dt_util.now()
                 self.last_sync_result = result
                 self.async_update_listeners()
-                _LOGGER.info(
-                    "Playlist re-align complete: %s", _sync_result_summary(result)
-                )
+                if dry_run:
+                    _LOGGER.info(
+                        "Playlist re-align (dry run) complete: would remove "
+                        "%s album(s) / %s track(s), would add %s album(s), "
+                        "%s intact, %s error(s)",
+                        result["would_remove_albums"],
+                        result["would_remove_tracks"],
+                        result["would_add_albums"],
+                        result["already"],
+                        result["errored"],
+                    )
+                else:
+                    _LOGGER.info(
+                        "Playlist re-align complete: %s", _sync_result_summary(result)
+                    )
             return result
 
     @staticmethod

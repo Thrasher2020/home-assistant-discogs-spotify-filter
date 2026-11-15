@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- `realign_playlist` accepts `dry_run: true`: it resolves the collection and reports what it would remove and add without changing the playlist. The result carries `would_remove_albums`, `would_remove_tracks`, `would_add_albums` and a `would_remove` list of album names with track counts (up to 200), all exposed as attributes on the Collection Sync Status sensor. Re-align deletes every track whose album is not in the collection, so on a playlist that also holds deluxe or expanded editions of owned albums it can remove far more than expected — the dry run shows that first.
+- Re-align logs every removed album at `INFO` with its track count (`Re-align removed 'X' (N track(s))`), matching the existing per-album log on adds, so a real run leaves a durable record of what it deleted.
+
+### Fixed
+
+- Spotify album resolution no longer accepts unrelated albums. Title matching drops stop words and requires the significant tokens of the Discogs title to be fully present (at least two); a new album-only artist check requires the Discogs artist to match the Spotify album artist; and among equally scoring candidates the closest title wins instead of the first hit. Previously a 50% token overlap let unrelated releases through — a 33-track Various Artists compilation matched because `Various` appears in `Various Artists`, and it was added to the collection playlist. Tolerant matching for deluxe editions and subtitle parentheticals is unchanged, and gig/calendar band matching still uses the original fuzzy matcher.
+
+### Changed
+
+- Playlist sync logs every Spotify candidate with its score at `DEBUG` and the chosen album at `INFO`, so future mismatches can be diagnosed from the log.
+
 ## 0.3.8
 
 ### Added

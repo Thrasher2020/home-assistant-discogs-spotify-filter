@@ -68,7 +68,7 @@ Then open **Options** to tune everything:
 ## Services
 
 - `discogs_spotify_calendar_filter.sync_collection` — add the collection albums to a Spotify playlist (defaults to the configured sync playlist; optional `playlist_id`).
-- `discogs_spotify_calendar_filter.realign_playlist` — make a playlist an exact mirror of the collection (optional `playlist_id`).
+- `discogs_spotify_calendar_filter.realign_playlist` — make a playlist an exact mirror of the collection (optional `playlist_id`; set `dry_run: true` to report what would change without applying it).
 
 ## Example automation — gig by an artist you own
 

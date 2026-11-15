@@ -28,3 +28,8 @@ realign_playlist:
       selector:
         text:
           multiline: false
+    dry_run:
+      name: Dry Run
+      description: Report what would be removed and added without changing the playlist. Defaults to false.
+      selector:
+        boolean:

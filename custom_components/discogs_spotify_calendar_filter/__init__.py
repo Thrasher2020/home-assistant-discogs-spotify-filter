@@ -22,6 +22,13 @@ _OPTIONAL_PLAYLIST_SCHEMA = vol.Schema(
     {vol.Optional("playlist_id"): vol.Any(cv.string, None)}
 )
 
+_REALIGN_SCHEMA = vol.Schema(
+    {
+        vol.Optional("playlist_id"): vol.Any(cv.string, None),
+        vol.Optional("dry_run", default=False): cv.boolean,
+    }
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Discogs/Spotify Calendar Filter from a config entry."""
@@ -38,7 +45,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_realign_playlist(call: ServiceCall) -> None:
         """Start a playlist re-align in the background."""
         hass.async_create_task(
-            coordinator.async_realign_playlist(call.data.get("playlist_id"))
+            coordinator.async_realign_playlist(
+                call.data.get("playlist_id"), call.data.get("dry_run", False)
+            )
         )
 
     hass.services.async_register(
@@ -51,7 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN,
         SERVICE_REALIGN_PLAYLIST,
         handle_realign_playlist,
-        schema=_OPTIONAL_PLAYLIST_SCHEMA,
+        schema=_REALIGN_SCHEMA,
     )
     entry.async_on_unload(
         lambda: hass.services.async_remove(DOMAIN, SERVICE_SYNC_COLLECTION)
