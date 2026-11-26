@@ -27,6 +27,7 @@ from .const import (
     COLLECTION_PER_PAGE,
     CONF_CALENDAR_ENTITY_ID,
     CONF_CALENDAR_LOOKAHEAD_DAYS,
+    CONF_COLLECTION_FOLDER_IDS,
     CONF_DISCOGS_TOKEN,
     CONF_DISCOGS_USERNAME,
     CONF_EXCLUDE_GENRES,
@@ -703,6 +704,20 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             raw = default
         return {item.strip().lower() for item in str(raw).split(",") if item.strip()}
 
+    def _collection_folder_ids(self) -> list[int]:
+        """Return the Discogs collection folders to sync, defaulting to all."""
+        value = self._entry.data.get(CONF_COLLECTION_FOLDER_IDS)
+        folder_ids: list[int] = []
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                try:
+                    folder_id = int(item)
+                except (TypeError, ValueError):
+                    continue
+                if folder_id >= 0 and folder_id not in folder_ids:
+                    folder_ids.append(folder_id)
+        return sorted(folder_ids) or [COLLECTION_FOLDER_ID]
+
     async def _async_fetch_collection_releases(
         self, username: str
     ) -> list[dict[str, Any]]:
@@ -712,62 +727,63 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
         keep_releases = self._exclusion_set(CONF_KEEP_RELEASES, DEFAULT_KEEP_RELEASES)
         releases: list[dict[str, Any]] = []
         excluded_releases: list[str] = []
-        page = 1
-        while True:
-            data = await self._async_discogs_get(
-                f"{API_BASE_URL}/users/{username}/collection/"
-                f"folders/{COLLECTION_FOLDER_ID}/releases"
-                f"?per_page={COLLECTION_PER_PAGE}&page={page}"
-            )
-            for release in data.get("releases", []):
-                basic = release.get("basic_information") or {}
-                title = (basic.get("title") or "").strip()
-                genres = [
-                    (genre or "").strip()
-                    for genre in (basic.get("genres") or [])
-                    if genre
-                ]
-                styles = [
-                    (style or "").strip()
-                    for style in (basic.get("styles") or [])
-                    if style
-                ]
-                if (
-                    any(genre.lower() in excluded_genres for genre in genres)
-                    or any(style.lower() in excluded_styles for style in styles)
-                ) and title.lower() not in keep_releases:
-                    artist_label = ", ".join(
+        for folder_id in self._collection_folder_ids():
+            page = 1
+            while True:
+                data = await self._async_discogs_get(
+                    f"{API_BASE_URL}/users/{username}/collection/"
+                    f"folders/{folder_id}/releases"
+                    f"?per_page={COLLECTION_PER_PAGE}&page={page}"
+                )
+                for release in data.get("releases", []):
+                    basic = release.get("basic_information") or {}
+                    title = (basic.get("title") or "").strip()
+                    genres = [
+                        (genre or "").strip()
+                        for genre in (basic.get("genres") or [])
+                        if genre
+                    ]
+                    styles = [
+                        (style or "").strip()
+                        for style in (basic.get("styles") or [])
+                        if style
+                    ]
+                    if (
+                        any(genre.lower() in excluded_genres for genre in genres)
+                        or any(style.lower() in excluded_styles for style in styles)
+                    ) and title.lower() not in keep_releases:
+                        artist_label = ", ".join(
+                            (artist.get("name") or "").strip()
+                            for artist in (basic.get("artists") or [])
+                            if isinstance(artist, dict) and artist.get("name")
+                        )
+                        excluded_releases.append(
+                            f"{artist_label} - {title}" if artist_label else title
+                        )
+                        continue
+                    artists = [
                         (artist.get("name") or "").strip()
                         for artist in (basic.get("artists") or [])
                         if isinstance(artist, dict) and artist.get("name")
+                    ]
+                    formats = [
+                        (fmt.get("name") or "").strip()
+                        for fmt in (basic.get("formats") or [])
+                        if isinstance(fmt, dict) and fmt.get("name")
+                    ]
+                    releases.append(
+                        {
+                            "title": basic.get("title"),
+                            "artists": artists,
+                            "year": basic.get("year"),
+                            "formats": formats,
+                        }
                     )
-                    excluded_releases.append(
-                        f"{artist_label} - {title}" if artist_label else title
-                    )
-                    continue
-                artists = [
-                    (artist.get("name") or "").strip()
-                    for artist in (basic.get("artists") or [])
-                    if isinstance(artist, dict) and artist.get("name")
-                ]
-                formats = [
-                    (fmt.get("name") or "").strip()
-                    for fmt in (basic.get("formats") or [])
-                    if isinstance(fmt, dict) and fmt.get("name")
-                ]
-                releases.append(
-                    {
-                        "title": basic.get("title"),
-                        "artists": artists,
-                        "year": basic.get("year"),
-                        "formats": formats,
-                    }
-                )
-            pages = int(data.get("pagination", {}).get("pages") or 1)
-            if page >= pages:
-                break
-            page += 1
-            await asyncio.sleep(PAGE_DELAY_SECONDS)
+                pages = int(data.get("pagination", {}).get("pages") or 1)
+                if page >= pages:
+                    break
+                page += 1
+                await asyncio.sleep(PAGE_DELAY_SECONDS)
         if excluded_releases:
             _LOGGER.warning(
                 "Discogs collection sync excluded %d release(s): %s",
@@ -958,6 +974,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
             result: dict[str, Any] = {
                 "op": "sync",
                 "playlist_id": playlist_id,
+                "folders": self._collection_folder_ids(),
                 "added": 0,
                 "already": 0,
                 "errored": 0,
@@ -1053,6 +1070,7 @@ class DiscogsSpotifyCalendarFilterCoordinator(DataUpdateCoordinator[dict[str, An
                 "op": "realign",
                 "dry_run": dry_run,
                 "playlist_id": playlist_id,
+                "folders": self._collection_folder_ids(),
                 "added": 0,
                 "already": 0,
                 "removed": 0,

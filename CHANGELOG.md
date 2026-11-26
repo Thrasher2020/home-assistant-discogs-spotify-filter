@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- Collection sync can be limited to specific Discogs collection folders. The integration options gain **Collection folders to sync**, a multi-select of your named Discogs folders; `sync_collection` and `realign_playlist` then only see the releases filed in them. Leaving the list empty — the default for existing installations — keeps using the whole collection, so nothing changes until a folder is chosen. Folder names are stored on the config entry, so a failed Discogs lookup while the options form opens shows the saved selection instead of silently resetting it to "all", and the folder ids used by the last run appear as a `folders` attribute on the Collection Sync Status sensor.
+- Re-align applies the same filter: the selected folders become the collection it mirrors. After changing the selection, run `realign_playlist` with `dry_run: true` first.
+
+### Changed
+
+- Gig and calendar matching is deliberately unchanged: the folder filter applies only to the playlist sync, so a band whose record is filed in an unselected folder still matches upcoming gigs.
+
 ## 0.4.0
 
 ### Added

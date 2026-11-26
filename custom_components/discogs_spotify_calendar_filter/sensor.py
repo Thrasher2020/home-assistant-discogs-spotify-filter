@@ -152,6 +152,7 @@ class DiscogsSpotifyCalendarFilterSyncStatusSensor(CoordinatorEntity[DiscogsSpot
             "op",
             "dry_run",
             "playlist_id",
+            "folders",
             "added",
             "already",
             "removed",

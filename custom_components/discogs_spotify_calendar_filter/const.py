@@ -21,6 +21,9 @@ CONF_EXCLUDE_GENRES = "exclude_genres"
 CONF_EXCLUDE_STYLES = "exclude_styles"
 CONF_KEEP_RELEASES = "keep_releases"
 
+CONF_COLLECTION_FOLDER_IDS = "collection_folder_ids"
+CONF_COLLECTION_FOLDER_NAMES = "collection_folder_names"
+
 DEFAULT_EXCLUDE_GENRES = "Classical"
 DEFAULT_EXCLUDE_STYLES = "Spoken Word"
 DEFAULT_KEEP_RELEASES = "Symphonique, Legacy Of The Dark Lands"

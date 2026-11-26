@@ -18,6 +18,8 @@ from .const import (
     CALENDAR_DOMAIN,
     CONF_CALENDAR_ENTITY_ID,
     CONF_CALENDAR_LOOKAHEAD_DAYS,
+    CONF_COLLECTION_FOLDER_IDS,
+    CONF_COLLECTION_FOLDER_NAMES,
     CONF_DISCOGS_TOKEN,
     CONF_DISCOGS_USERNAME,
     CONF_EXCLUDE_GENRES,
@@ -54,6 +56,39 @@ async def _async_get_identity(hass, token: str) -> str | None:
         response.raise_for_status()
         data = await response.json(content_type=None)
         return data.get("username")
+
+
+async def _async_get_collection_folders(
+    hass, token: str, username: str
+) -> dict[int, str]:
+    """Return the user's Discogs collection folders as {id: name}.
+
+    Folder 0 ("All") is omitted: an empty selection already means the whole
+    collection, so listing it would only duplicate every other choice.
+    """
+    session = async_get_clientsession(hass)
+    headers = {"Authorization": f"Discogs token={token}", "User-Agent": SERVER_SOFTWARE}
+    folders: dict[int, str] = {}
+    page = 1
+    while True:
+        async with session.get(
+            f"{API_BASE_URL}/users/{username}/collection/folders"
+            f"?per_page=100&page={page}",
+            headers=headers,
+            timeout=_TIMEOUT,
+        ) as response:
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+        for folder in data.get("folders") or []:
+            folder_id = folder.get("id")
+            name = (folder.get("name") or "").strip()
+            if isinstance(folder_id, int) and folder_id > 0 and name:
+                folders[folder_id] = name
+        pages = int((data.get("pagination") or {}).get("pages") or 1)
+        if page >= pages:
+            break
+        page += 1
+    return folders
 
 
 def _spotifyplus_available(hass) -> bool:
@@ -255,6 +290,7 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
         self._entry = entry
         self._player_entity_id: str | None = None
         self._playlists: dict[str, str] = {}
+        self._folders: dict[int, str] = {}
 
     def _current_playlists(self) -> list[str]:
         """Return the playlists currently configured on the entry."""
@@ -283,12 +319,71 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
             current = self._current_playlists()
             self._playlists = {playlist_id: stored for playlist_id in current}
 
+    def _current_folders(self) -> list[int]:
+        """Return the Discogs folder ids currently configured on the entry."""
+        value = self._entry.data.get(CONF_COLLECTION_FOLDER_IDS)
+        if not isinstance(value, (list, tuple)):
+            return []
+        folders: list[int] = []
+        for item in value:
+            try:
+                folder_id = int(item)
+            except (TypeError, ValueError):
+                continue
+            if folder_id >= 0 and folder_id not in folders:
+                folders.append(folder_id)
+        return folders
+
+    def _stored_folder_names(self) -> dict[str, str]:
+        """Return the folder names persisted with the entry, keyed by id."""
+        stored = self._entry.data.get(CONF_COLLECTION_FOLDER_NAMES)
+        if not isinstance(stored, dict):
+            return {}
+        return {str(key): str(name) for key, name in stored.items()}
+
+    async def _load_folders(self) -> dict[str, str]:
+        """Return selectable collection folders as {id: label}.
+
+        A failed lookup falls back to the names saved on the entry so the
+        existing selection stays visible instead of silently resetting to the
+        whole collection.
+        """
+        self._folders = {}
+        self._folders_ok = False
+        if self._entry.data.get(CONF_DISCOGS_TOKEN) and self._entry.data.get(
+            CONF_DISCOGS_USERNAME
+        ):
+            try:
+                self._folders = await _async_get_collection_folders(
+                    self.hass,
+                    self._entry.data[CONF_DISCOGS_TOKEN],
+                    self._entry.data[CONF_DISCOGS_USERNAME],
+                )
+                self._folders_ok = True
+            except (aiohttp.ClientError, TimeoutError, ValueError):
+                self._folders = {}
+        options = {str(folder_id): name for folder_id, name in self._folders.items()}
+        stored_names = self._stored_folder_names()
+        for folder_id in self._current_folders():
+            key = str(folder_id)
+            options.setdefault(key, stored_names.get(key, f"Folder {folder_id}"))
+        return options
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the Spotify playlists and the secondary calendar."""
         if user_input is None:
             await self._load_playlists()
+            folder_options = await self._load_folders()
+            errors: dict[str, str] = {}
+            if not self._folders_ok:
+                errors["base"] = "folders_unavailable"
+            selected_folders = [
+                str(folder_id)
+                for folder_id in self._current_folders()
+                if str(folder_id) in folder_options
+            ]
             current_calendar = self._entry.data.get(CONF_CALENDAR_ENTITY_ID)
             current_lookahead = self._entry.data.get(
                 CONF_CALENDAR_LOOKAHEAD_DAYS, DEFAULT_CALENDAR_LOOKAHEAD_DAYS
@@ -324,6 +419,9 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
                             CONF_SPOTIFY_SYNC_PLAYLIST_ID, default=current_sync or SKIP_SYNC
                         ): vol.In(sync_options),
                         vol.Optional(
+                            CONF_COLLECTION_FOLDER_IDS, default=selected_folders
+                        ): cv.multi_select(folder_options),
+                        vol.Optional(
                             CONF_EXCLUDE_GENRES,
                             default=(
                                 current_genres
@@ -349,6 +447,7 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
                         ): cv.string,
                     }
                 ),
+                errors=errors,
             )
 
         data: dict[str, Any] = dict(self._entry.data)
@@ -374,6 +473,28 @@ class DiscogsSpotifyCalendarFilterOptionsFlow(OptionsFlow):
             data[CONF_SPOTIFY_SYNC_PLAYLIST_NAME] = self._playlists.get(
                 chosen_sync, chosen_sync
             )
+
+        selected_folder_ids: list[int] = []
+        for item in user_input.get(CONF_COLLECTION_FOLDER_IDS) or []:
+            try:
+                folder_id = int(item)
+            except (TypeError, ValueError):
+                continue
+            if folder_id >= 0 and folder_id not in selected_folder_ids:
+                selected_folder_ids.append(folder_id)
+        if selected_folder_ids:
+            selected_folder_ids.sort()
+            stored_names = self._stored_folder_names()
+            data[CONF_COLLECTION_FOLDER_IDS] = selected_folder_ids
+            data[CONF_COLLECTION_FOLDER_NAMES] = {
+                str(folder_id): self._folders.get(
+                    folder_id, stored_names.get(str(folder_id), f"Folder {folder_id}")
+                )
+                for folder_id in selected_folder_ids
+            }
+        else:
+            data.pop(CONF_COLLECTION_FOLDER_IDS, None)
+            data.pop(CONF_COLLECTION_FOLDER_NAMES, None)
 
         chosen = user_input[CONF_CALENDAR_ENTITY_ID]
         if chosen == SKIP_CALENDAR:

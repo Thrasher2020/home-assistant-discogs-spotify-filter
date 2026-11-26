@@ -7,7 +7,7 @@ Surf the gigs around you that actually matter to *you*. **Discogs/Spotify Calend
 - highlights every upcoming gig whose band is in **your Discogs collection** or **your Spotify playlists**;
 - exposes them as a curated **calendar** and **sensors**;
 - optionally cross-references a **secondary calendar** (e.g. your iCloud/Google calendar) so gigs that clash with its events — or are by a band already booked in it — are hidden;
-- can **sync your Discogs collection** to a Spotify playlist, and re-align that playlist to be an exact mirror of the collection.
+- can **sync your Discogs collection** to a Spotify playlist — optionally limited to chosen Discogs collection folders — and re-align that playlist to be an exact mirror of the collection.
 
 ## Prerequisites
 
@@ -49,6 +49,7 @@ Then open **Options** to tune everything:
 | Secondary calendar | Calendar to cross-reference; gigs overlapping its events or by an attended band are hidden |
 | Calendar cross-check lookahead | How many days ahead gigs are cross-checked against the secondary calendar (1–730, default 365) |
 | Collection sync playlist | Target playlist for `sync_collection` / `realign_playlist` |
+| Collection folders | Discogs collection folders to sync; leave empty for the whole collection. Also limits `realign_playlist`. |
 | Exclude Discogs genres | Comma-separated genres to skip when syncing the collection |
 | Exclude Discogs styles | Comma-separated styles to skip when syncing the collection |
 | Keep these releases | Comma-separated Discogs titles kept even when their genre/style matches an exclusion |
